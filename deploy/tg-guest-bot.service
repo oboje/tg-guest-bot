@@ -1,13 +1,13 @@
 [Unit]
-Description=Telegram agent relay
+Description=Telegram guest bot
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=relay
-WorkingDirectory=/opt/tg-relay
-ExecStart=/usr/bin/python3 /opt/tg-relay/bot.py
+User=guest
+WorkingDirectory=/opt/tg-guest-bot
+ExecStart=/usr/bin/python3 /opt/tg-guest-bot/bot.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

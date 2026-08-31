@@ -239,7 +239,7 @@ def main():
     load_env()
     cfg = Config()
     cfg.validate()
-    print(f"relay up: owner={cfg.owner_id} agent={cfg.agent_bin} "
+    print(f"tg-guest-bot up: owner={cfg.owner_id} agent={cfg.agent_bin} "
           f"workdir={cfg.workdir}", file=sys.stderr)
     offset = None
     while True:
