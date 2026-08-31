@@ -15,6 +15,7 @@ API = "https://api.telegram.org/bot{token}/{method}"
 TG_LIMIT = 4096
 EDIT_INTERVAL = 1.5
 MAX_STEPS_SHOWN = 8
+ALLOWED_UPDATES = json.dumps(["message", "edited_message", "guest_message"])
 
 
 def load_env(path=".env"):
@@ -41,6 +42,9 @@ class Config:
         self.stream_args = shlex.split(os.environ.get(
             "AGENT_STREAM_ARGS", "--output-format stream-json --verbose"))
         self.poll_timeout = int(os.environ.get("POLL_TIMEOUT", "30"))
+        self.guest_timeout = int(os.environ.get("GUEST_TIMEOUT", "120"))
+        allowed = os.environ.get("GUEST_ALLOWED_IDS", "")
+        self.guest_ids = {i.strip() for i in allowed.split(",") if i.strip()}
 
     def validate(self):
         missing = [n for n, v in (("TELEGRAM_BOT_TOKEN", self.token),
@@ -49,6 +53,8 @@ class Config:
             sys.exit(f"Missing env: {', '.join(missing)}")
         if not self.owner_id.lstrip("-").isdigit():
             sys.exit("TELEGRAM_OWNER_ID must be numeric")
+        if not self.guest_ids:
+            self.guest_ids = {self.owner_id}
         if not os.path.isdir(self.workdir):
             sys.exit(f"AGENT_WORKDIR is not a directory: {self.workdir}")
 
@@ -193,20 +199,50 @@ def run_agent_stream(cfg, chat_id, prompt):
     return answer or "\n\n".join(texts) or err or "(no output)"
 
 
-def run_agent(cfg, prompt):
+def run_agent(cfg, prompt, timeout=None):
+    timeout = timeout or cfg.timeout
     cmd = [cfg.agent_bin, *cfg.agent_args, prompt]
     try:
         proc = subprocess.run(cmd, cwd=cfg.workdir, capture_output=True,
-                              text=True, stdin=subprocess.DEVNULL, timeout=cfg.timeout)
+                              text=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except FileNotFoundError:
         return f"agent binary not found: {cfg.agent_bin}"
     except subprocess.TimeoutExpired:
-        return f"agent timed out after {cfg.timeout}s"
+        return f"agent timed out after {timeout}s"
     out = (proc.stdout or "").strip()
     err = (proc.stderr or "").strip()
     if proc.returncode != 0:
         return f"agent exited {proc.returncode}\n\n{err or out or '(no output)'}"
     return out or err or "(no output)"
+
+
+def answer_guest(cfg, query_id, text):
+    result = {"type": "article", "id": "1", "title": "answer",
+              "input_message_content": {"message_text": text[:TG_LIMIT]}}
+    try:
+        api(cfg, "answerGuestQuery", {"guest_query_id": query_id,
+                                      "result": json.dumps(result)}, timeout=30)
+    except Exception as exc:
+        print(f"answerGuestQuery failed: {exc}", file=sys.stderr)
+
+
+def handle_guest(cfg, message):
+    query_id = message.get("guest_query_id")
+    if not query_id:
+        return
+    user_id = str(message.get("from", {}).get("id", ""))
+    if user_id not in cfg.guest_ids:
+        print(f"ignored guest {user_id}", file=sys.stderr)
+        return
+    text = (message.get("text") or "").strip()
+    if text.startswith("@"):
+        text = text.partition(" ")[2].strip()
+    quoted = ((message.get("reply_to_message") or {}).get("text") or "").strip()
+    if quoted:
+        text = f"Quoted message:\n{quoted}\n\nRequest:\n{text}"
+    if not text:
+        return
+    answer_guest(cfg, query_id, run_agent(cfg, text, cfg.guest_timeout))
 
 
 def handle(cfg, message):
@@ -239,11 +275,16 @@ def main():
     load_env()
     cfg = Config()
     cfg.validate()
+    try:
+        me = api(cfg, "getMe", {}, timeout=15).get("result", {})
+        guest = "on" if me.get("supports_guest_queries") else "off (BotFather)"
+    except Exception:
+        guest = "unknown"
     print(f"tg-guest-bot up: owner={cfg.owner_id} agent={cfg.agent_bin} "
-          f"workdir={cfg.workdir}", file=sys.stderr)
+          f"workdir={cfg.workdir} guest_mode={guest}", file=sys.stderr)
     offset = None
     while True:
-        params = {"timeout": cfg.poll_timeout}
+        params = {"timeout": cfg.poll_timeout, "allowed_updates": ALLOWED_UPDATES}
         if offset is not None:
             params["offset"] = offset
         try:
@@ -254,6 +295,9 @@ def main():
             continue
         for update in result.get("result", []):
             offset = update["update_id"] + 1
+            if update.get("guest_message"):
+                handle_guest(cfg, update["guest_message"])
+                continue
             message = update.get("message") or update.get("edited_message")
             if message:
                 handle(cfg, message)

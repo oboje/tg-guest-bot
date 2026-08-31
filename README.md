@@ -49,9 +49,21 @@ as a separate message so it stays copyable.
 | `AGENT_WORKDIR` | `.` | Directory the agent runs in |
 | `AGENT_TIMEOUT` | `600` | Kill a run after N seconds |
 | `POLL_TIMEOUT` | `30` | Long-poll window |
+| `GUEST_ALLOWED_IDS` | owner | Ids allowed to summon the bot by @mention |
+| `GUEST_TIMEOUT` | `120` | Kill a guest run after N seconds |
 
 Switching to codex: see the preset at the bottom of `.env.example`
 (`AGENT_STREAM=0` — its event format is not parsed).
+
+## Guest mode
+
+Enable it in @BotFather: profile -> Open App -> your bot -> Settings -> Guest
+Mode. The startup banner then prints `guest_mode=on`.
+
+A mention in any chat the bot is not in (`@yourbot summarize this`) arrives as
+`update.guest_message` and is answered once via `answerGuestQuery` - no
+streaming, no chat history, no follow-ups unless mentioned again. Only ids in
+`GUEST_ALLOWED_IDS` are served, since a reply runs the agent CLI locally.
 
 ## Commands
 
