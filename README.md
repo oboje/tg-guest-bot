@@ -1,11 +1,3 @@
----
-title: tg-guest-bot
-description: Single-owner Telegram bot that forwards messages to a local claude -p (or codex) CLI and streams live progress back.
-date: 2026-08-31
-tags: [telegram, claude-code, codex, bot, python]
-status: active
----
-
 # tg-guest-bot
 
 Plain Python 3, standard library only. Long-polls Telegram, ignores every user
